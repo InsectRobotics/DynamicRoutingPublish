@@ -1,0 +1,11 @@
+matplotlib~=3.3.3
+PyQt5~=5.15.4
+numpy~=1.19.4
+numba~=0.53.1
+torch~=1.9.0
+gym~=0.18.3
+ipython~=7.25.0
+DynamicSynapse~=0.0.1
+networkx~=2.5.1
+dill~=0.3.3
+tqdm~=4.60.0
