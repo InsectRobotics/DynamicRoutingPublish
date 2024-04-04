@@ -6,7 +6,7 @@ from DynamicRouting.Utils.MathUtil import relu
 class FullRandomMapping:
     def __init__(self, Number_of_inputs, Number_of_outputs, distribution=np.random.normal, threshold=1,
                  silence_count_threshold=0.01, overactive_count_threshold=0.5,
-                 dt=0.01, activity_check_start_time=100, learning_rule='remap',
+                 dt=0.01, activity_check_start_time=100, code_max_only=True, learning_rule='remap',
                  factor_update_rate=1e-2):
         self.Number_of_inputs = Number_of_inputs
         self.Number_of_outputs = Number_of_outputs
@@ -22,6 +22,7 @@ class FullRandomMapping:
         self.silence_index = []
         self.overactive_index = []
         self.output_value = np.zeros((Number_of_inputs, Number_of_outputs))
+        self.code_max_only = code_max_only
         self.necessity_to_check = np.ones((Number_of_outputs))
         self.learning_rule = learning_rule
         self.factor_update_rate = factor_update_rate
@@ -66,8 +67,11 @@ class FullRandomMapping:
         if dt is None:
             dt = self.dt
         self.time_counter += dt
-        max_index = np.argmax(self.output_value)
-        self.activity_counter[max_index] += dt
+        if self.code_max_only:
+            max_index = np.argmax(self.output_value)
+            self.activity_counter[max_index] += dt
+        else:
+            self.activity_counter += np.greater(self.output_value, self.threshold) * dt
         self.necessity_to_check_by_time = self.necessity_to_check/self.activity_counter
         self.state_can_be_checked = np.greater(self.time_counter, self.activity_check_start_time)
         self.silence_index = np.where(np.logical_and(self.state_can_be_checked,
@@ -124,7 +128,7 @@ if __name__ == '__main__':
     number_of_inputs = observations.shape[1]
     number_of_outputs = 10
     FRM = FullRandomMapping(number_of_inputs, number_of_outputs, dt=dt, threshold=5,
-                            activity_check_start_time=4)
+                            activity_check_start_time=4, code_max_only=True)
     maxes = np.zeros(number_of_steps)
     for index_of_step in range(number_of_steps):
         output_value = FRM.step(observations[index_of_step, :])

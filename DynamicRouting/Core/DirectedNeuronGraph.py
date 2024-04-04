@@ -12,12 +12,18 @@ import matplotlib.patches as mpatches
 
 
 class DirectedNeuronGraph:
+    """
+
+    """
 
     def __init__(self, number_of_neurons, default_connection_strength):
         self.number_of_neurons = number_of_neurons
         self.default_connection_strength = default_connection_strength
-        self.connection_matrix = np.full([number_of_neurons, number_of_neurons], default_connection_strength, dtype=np.float)
+        self.connection_matrix = np.full([number_of_neurons, number_of_neurons], default_connection_strength, dtype=float)
         np.fill_diagonal(self.connection_matrix, 0)
+    #
+    # def set_default_connection(self, default_connection_strength, index_from=None, index_to=None):
+    #     self.connection_matrix[index_from, :] = default_connection_strength
 
     def _update_connection(self, i, j, connection):
         self.connection_matrix[i, j] += connection
@@ -46,8 +52,8 @@ class DirectedNeuronGraph:
 
     def generate_graph(self, number_of_edges=100):
         if self.number_of_neurons >= 20:
-            self.graph = nx.MultiDiGraph()
-            self.graph.add_nodes_from(range(self.number_of_neurons))
+            self.for_plot_graph = nx.MultiDiGraph()
+            self.for_plot_graph.add_nodes_from(range(self.number_of_neurons))
             edge_index_from_list = []
             edge_index_to_list = []
             edge_weight_list = []
@@ -62,14 +68,17 @@ class DirectedNeuronGraph:
                 edge_index_from_list = list(np.array(edge_index_from_list)[sorted_index[-number_of_edges:]])
                 edge_index_to_list = list(np.array(edge_index_to_list)[sorted_index[-number_of_edges:]])
                 edge_weight_list = list(np.array(edge_weight_list)[sorted_index[-number_of_edges:]])
-            self.graph.add_weighted_edges_from(zip(edge_index_from_list, edge_index_to_list, edge_weight_list))
+            # self.for_plot_edge_index_from_list = edge_index_from_list
+            # self.for_plot_edge_index_to_list = edge_index_to_list
+            # self.for_plot_edge_weight_list = edge_weight_list
+            self.for_plot_graph.add_weighted_edges_from(zip(edge_index_from_list, edge_index_to_list, edge_weight_list))
             # self.graph.add_edge(i1, i2, weight=self.connection_matrix[i1, i2])
         else:
-            self.graph = nx.convert_matrix.from_numpy_matrix(self.connection_matrix, create_using=nx.MultiDiGraph)
+            self.for_plot_graph = nx.convert_matrix.from_numpy_matrix(self.connection_matrix, create_using=nx.MultiDiGraph)
 
-    def plot_graph(self, title=None, block=False, show=True, edge_colors_matrix=None, node_color_vector=None,
+    def plot_graph(self, title=None, block=False, show=True, edge_colors_matrix=None, node_color_vector=None, edge_label_texts=None,
                    edgewidth_method='proportional'):
-
+        self.plot_graph_handles = {}
         def legend_Kmeans(orig_handle, labels, n_clusters=5):
             import matplotlib.patches as mpatches
             from matplotlib.legend_handler import HandlerPatch
@@ -87,11 +96,12 @@ class DirectedNeuronGraph:
                        handler_map={mpatches.FancyArrowPatch: HandlerPatch(patch_func=make_legend_arrow), })
 
         fig, ax = plt.subplots()
+        # pos = nx.kamada_kawai_layout(self.graph)
 
         edge_labels = dict([((n1, n2), d['weight'])
-                            for n1, n2, d in self.graph.edges(data=True)])
+                            for n1, n2, d in self.for_plot_graph.edges(data=True)])
         # edge width is proportional number of games played
-        weights = np.array([self.graph.get_edge_data(u, v)[0]['weight'] for u, v in self.graph.edges()])
+        weights = np.array([self.for_plot_graph.get_edge_data(u, v)[0]['weight'] for u, v in self.for_plot_graph.edges()])
 
         if edgewidth_method == 'log':
             b = 1  # when wight is 1, the edgewidth is 1
@@ -100,26 +110,27 @@ class DirectedNeuronGraph:
         elif edgewidth_method == 'proportional':
             edgewidth = weights / weights.max() * 10
         if self.number_of_neurons > 20:
-            pos = nx.spring_layout(self.graph)
+            pos = nx.spring_layout(self.for_plot_graph)
         else:
-            pos = nx.circular_layout(self.graph)
+            pos = nx.circular_layout(self.for_plot_graph)
         # self.graph_figure = nx.draw(self.graph, labels=labels, connectionstyle='arc3, rad = 0.1')
         if node_color_vector is None:
             node_color_vector = 'k'
-        nodes = nx.draw_networkx_nodes(self.graph, pos, node_color=node_color_vector,
+        nodes = nx.draw_networkx_nodes(self.for_plot_graph, pos, node_color=node_color_vector,
                                        node_size=300)  # node_color="blue"
+        # nx.draw(self.graph, with_labels=True, connectionstyle='arc3, rad = 0.1')
         if edge_colors_matrix is None:
             edge_colors = 'k'
         else:
             edge_colors_matrix = np.array(edge_colors_matrix)
             assert edge_colors_matrix.shape == (self.number_of_neurons, self.number_of_neurons)
-            edge_colors = [edge_colors_matrix[n1, n2] for n1, n2 in self.graph.edges()]
+            edge_colors = [edge_colors_matrix[n1, n2] for n1, n2 in self.for_plot_graph.edges()]
 
         edge_cmap = mpl.cm.get_cmap('copper')
         edge_alpha = 1
 
         edges = nx.draw_networkx_edges(
-            self.graph,
+            self.for_plot_graph,
             pos,
             arrowstyle="->",
             arrowsize=20,
@@ -142,7 +153,13 @@ class DirectedNeuronGraph:
             for index in range(len(edgewidth)):
                 edges[index].set_alpha(0.1 if edge_alphas[index] <= 0.0001 else 1)
         labels = dict(zip(range(self.number_of_neurons), range(self.number_of_neurons)))
-        nx.draw_networkx_labels(self.graph, pos=pos, labels=labels, font_color='w')
+        nx.draw_networkx_labels(self.for_plot_graph, pos=pos, labels=labels, font_color='w')
+
+        if edge_label_texts is not None:
+            edge_labels = nx.draw_networkx_edge_labels(self.for_plot_graph, pos=pos,
+                                                       edge_labels=edge_label_texts, ax=ax, font_size=7, alpha=0.8,
+                                                       verticalalignment='center', label_pos=0.3)
+
         plt.axis("off")
         ax_node_colorbar = inset_axes(ax,
                                       width="5%",  # width = 5% of parent_bbox width
@@ -180,10 +197,10 @@ class DirectedNeuronGraph:
             fig.suptitle(title)
         if show:
             plt.show(block=block)
-        return fig
+        return fig # , ax, pos
 
     def save_graph(self, path='graph.csv'):
-        nx.readwrite.edgelist.write_edgelist(self.graph, path)
+        nx.readwrite.edgelist.write_edgelist(self.for_plot_graph, path)
 
 
 if __name__ == "__main__":

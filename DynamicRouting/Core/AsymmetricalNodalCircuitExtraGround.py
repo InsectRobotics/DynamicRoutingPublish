@@ -24,14 +24,14 @@ class AsymmetricalNodalCircuitExtraGround(AsymmetricalNodalCircuit):
     """
 
     def __init__(self, number_of_neurons, default_connection_strength, default_leakage_conductance=1e-10):
-        self.leakage_conductance = np.full(number_of_neurons, default_leakage_conductance)
+        self.leakage_conductance = np.full(number_of_neurons, default_leakage_conductance, dtype=float)
         self.default_leakage_conductance = default_leakage_conductance
         super().__init__(number_of_neurons, default_connection_strength)
         np.fill_diagonal(self.nodal_admittance_matrix,
                          self.nodal_admittance_matrix.diagonal() + self.leakage_conductance)
         self.leakage_current = np.zeros(self.number_of_neurons)
         self.targets = dict()
-        self.dangers = dict()
+        self.obstacle = dict()
 
     def update_nodal_matrix(self):
         self.nodal_admittance_matrix[self.passable_connection] \
@@ -52,12 +52,15 @@ class AsymmetricalNodalCircuitExtraGround(AsymmetricalNodalCircuit):
             self.nodal_matrix[j, k] = -1
             self.nodal_matrix[k, j] = -1
 
-    def add_potential_conservations(self, conservations, update_existing_state=True):
+    def add_potential_conservations(self, conservations, update_incrementally=False): #TODO should be false? was True before 20230929
         self.conservation_vector = expand_vector(self.conservation_vector, len(conservations))
         self.nodal_matrix = expand_matrix(self.nodal_matrix, len(conservations))
         for i, j, conservation in conservations:
-            if update_existing_state and i != -1 and j != -1:
-                conservation += self.potential_diff_matrix[i, j]
+            if update_incrementally:
+                if i != -1 and j != -1:
+                    conservation += self.potential_diff_matrix[i, j]
+                else:
+                    raise NotImplementedError
             self._add_potential_conservation(i, j,
                                              self.number_of_potential_conservations + self.number_of_neurons,
                                              conservation)
@@ -92,15 +95,21 @@ class AsymmetricalNodalCircuitExtraGround(AsymmetricalNodalCircuit):
                 np.greater_equal(self.leakage_conductance[i], 0)), 'leakage conductance less than 0. Index' + str(i)
         self.targets.clear()
 
-    def set_danger(self, dangers):
-        for i, danger_rate in dangers:
-            if i in self.dangers:
-                if danger_rate is None:
-                    self.connection_matrix[:, i] *= self.dangers[i]
-                    self.dangers.pop(i)
+    def set_obstacle(self, obstacles):
+        for i, obstacle_rate in obstacles:
+            if i in self.obstacle:
+                if obstacle_rate is None:
+                    self.connection_matrix[i, :] *= self.obstacle[i]
+                    # TODO check which is correct, was self.connection_matrix[:, i] before 20230911
+                    self.obstacle.pop(i)
+                # else:
+                #     self.connection_matrix[:, i] *= self.dangers[i]
+                #     self.dangers[i] = obstacle_rate
+                #     self.leakage_conductance[i] /= obstacle_rate
             else:
-                self.dangers[i] = danger_rate
-                self.leakage_conductance[i] /= danger_rate
+                self.obstacle[i] = obstacle_rate
+                self.leakage_conductance[i] /= obstacle_rate
+
 
     def set_target(self, targets):
         for i, conductance in targets:
@@ -117,6 +126,7 @@ class AsymmetricalNodalCircuitExtraGround(AsymmetricalNodalCircuit):
                 self.targets[i] = conductance
                 self.leakage_conductance[i] += conductance
             assert np.all(np.greater_equal(self.leakage_conductance[i], 0)), 'leakage conductance less than 0.'
+        # assert np.all(np.greater(self.leakage_conductance, 0)), 'leakage conductance less than 0.'
 
     def update_target_with_vector(self, targe_change_vector):
         self.leakage_conductance += targe_change_vector
@@ -132,12 +142,33 @@ class AsymmetricalNodalCircuitExtraGround(AsymmetricalNodalCircuit):
             self.solves = torch.linalg.solve(torch.from_numpy(self.nodal_matrix),
                                              torch.from_numpy(self.conservation_vector)).numpy()
         except:
+            # if np.all(self.nodal_admittance_matrix == 0):
+            #     self.solves = np.zeros(self.conservation_vector.shape)
+            #     for row_index in range(self.conservation_vector.shape[0]):
+            #         column_index = np.where(self.nodal_matrix[row_index, :].ravel() != 0)
+            #         if len(column_index)!=0:
+            #             self.solves[column_index] = self.conservation_vector[column_index] /\
+            #                                         self.nodal_matrix[row_index, column_index].ravel()
+            # else:
+            #     raise
+            # traceback.print_exc(file=sys.stderr)
+            # self.solves = np.linalg.lstsq(self.nodal_matrix, self.conservation_vector)[0]
+
             index_to_remove, self.index_connected = index_remove(self.conservation_vector, self.nodal_matrix)
+            # index_to_remove = []
+            # for index in range(self.conservation_vector.shape[0]):
+            #     if np.all(self.nodal_matrix[index, :] == 0) and np.all(self.nodal_matrix[:, index] == 0):
+            #         index_to_remove.append(index)
+            # self.index_connected = np.delete(np.arange(self.conservation_vector.shape[0]), index_to_remove)
             self.solves = np.zeros(self.conservation_vector.shape[0])
             try:
+                # self.solves[self.index_connected] = np.linalg.solve(self.nodal_matrix[self.index_connected, :][:, self.index_connected],
+                #                               self.conservation_vector[self.index_connected])
                 self.solves[self.index_connected] = torch.linalg.solve(
                     torch.from_numpy(self.nodal_matrix[self.index_connected, :][:, self.index_connected]),
                     torch.from_numpy(self.conservation_vector[self.index_connected])).numpy()
+            # U,s,Vh = np.linalg.svd(self.nodal_matrix[self.index_connected, :][:, self.index_connected],
+            #               full_matrices=True, compute_uv=True, hermitian=True)
             except:
                 self.solves[self.index_connected] = np.linalg.lstsq(self.nodal_matrix[self.index_connected, :][:, self.index_connected],
                                               self.conservation_vector[self.index_connected])[0]
@@ -178,11 +209,11 @@ if __name__ == "__main__":
         KCs.update_nodal_matrix()
         solves = KCs.solve()
         print("solves", solves)
-    KCs.update_current()
-    KCs.generate_graph()
-    figure_dict[figure_index] = KCs.plot_graph(title="Test " + str(Test) + " Step " + str(step_index),
-                                               show=show_plot)
-    figure_index += 1
+        KCs.update_current()
+        KCs.generate_graph()
+        figure_dict[figure_index] = KCs.plot_graph(title="Test " + str(Test) + " Step " + str(step_index),
+                                                   show=show_plot)
+        figure_index += 1
     KCs.update_potential_conservations([[3, -1, None]])
     for i in range(10):
         step_index += 1
@@ -190,11 +221,11 @@ if __name__ == "__main__":
         KCs.update_nodal_matrix()
         solves = KCs.solve()
         print("solves", solves)
-    KCs.update_current()
-    KCs.generate_graph()
-    figure_dict[figure_index] = KCs.plot_graph(title="Test " + str(Test) + " Step " + str(step_index),
-                                               show=show_plot)
-    figure_index += 1
+        KCs.update_current()
+        KCs.generate_graph()
+        figure_dict[figure_index] = KCs.plot_graph(title="Test " + str(Test) + " Step " + str(step_index),
+                                                   show=show_plot)
+        figure_index += 1
 
     # Test 2
     Test += 1
