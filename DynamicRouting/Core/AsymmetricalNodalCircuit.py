@@ -38,10 +38,10 @@ class AsymmetricalNodalCircuit(DirectedNeuronGraph):
         self.number_of_neurons = number_of_neurons
         self.default_connection_strength = default_connection_strength
         self.connection_matrix = np.full([number_of_neurons, number_of_neurons], default_connection_strength,
-                                         dtype=np.float)
+                                         dtype=float)
         np.fill_diagonal(self.connection_matrix, 0)
         self.nodal_admittance_matrix = np.full([number_of_neurons, number_of_neurons], default_connection_strength,
-                                               dtype=np.float)
+                                               dtype=float)
         np.fill_diagonal(self.nodal_admittance_matrix, 0)
         np.fill_diagonal(self.nodal_admittance_matrix, -self.nodal_admittance_matrix.sum(axis=0))
         self.nodal_matrix = copy.deepcopy(self.nodal_admittance_matrix)
@@ -60,16 +60,29 @@ class AsymmetricalNodalCircuit(DirectedNeuronGraph):
 
 
     def update_potential_diff(self):
+        # self.potential_diff_matrix = np.expand_dims(self.potential_vector, 1) - np.expand_dims(self.potential_vector, 0)
+        # self.passable_connection = np.greater_equal(self.potential_diff_matrix, 0)
         potential_diff_matrix = np.expand_dims(range(10), 1) - np.expand_dims(range(10), 0)
         passable_connection = np.greater_equal(self.potential_diff_matrix, 0)
         self.potential_diff_matrix, self.passable_connection = \
             update_potential_diff_numba(self.potential_vector)
 
     def update_current(self):
+        # index_connected = self.index_connected[self.index_connected<self.number_of_neurons]
         self.current_matrix = self.potential_diff_matrix * self.connection_matrix
+        # self.current_matrix[index_connected, :][:, index_connected] \
+        #     = self.potential_diff_matrix[index_connected, :][:, index_connected] * \
+        #       self.connection_matrix[index_connected, :][:, index_connected]
+
+        # potential_diff = self.potential_diff_matrix[index_connected, :][:, index_connected]
+        # connection = self.connection_matrix[index_connected, :][:, index_connected]
+        # current = np.multiply(potential_diff,  connection)
+        # self.current_matrix[index_connected, :][:, index_connected] = current
         self.current_matrix[np.logical_not(self.passable_connection)] = 0
+        # np.fill_diagonal(self.current_matrix, 0)
 
     def update_nodal_matrix(self):
+        # admittance only, no conservation
         self.nodal_admittance_matrix[self.passable_connection] \
             = -self.connection_matrix[self.passable_connection]
         self.nodal_admittance_matrix[self.passable_connection.T] \
@@ -156,10 +169,10 @@ class AsymmetricalNodalCircuit(DirectedNeuronGraph):
                 self.add_potential_conservations([[i, j, change]])
         if index_to_del:
             index_to_del = np.sort(index_to_del)
-            for k in index_to_del:
-                self.conservation_vector = np.delete(self.conservation_vector, k)
-                self.nodal_matrix = np.delete(self.nodal_matrix, k, axis=0)
-                self.nodal_matrix = np.delete(self.nodal_matrix, k, axis=1)
+            # for k in index_to_del:
+            self.conservation_vector = np.delete(self.conservation_vector, index_to_del)
+            self.nodal_matrix = np.delete(self.nodal_matrix, index_to_del, axis=0)
+            self.nodal_matrix = np.delete(self.nodal_matrix, index_to_del, axis=1)
             for i in self.potential_conservations.keys():
                 for j in self.potential_conservations[i].keys():
                     self.potential_conservations[i][j]["index"] -= \
@@ -177,10 +190,10 @@ class AsymmetricalNodalCircuit(DirectedNeuronGraph):
         self.potential_vector = self.solves[:self.number_of_neurons]
         return self.solves
 
-    def plot_graph(self, title=None, block=False, show=True):
+    def plot_graph(self, title=None, block=False, show=True,  *args, **kwargs):
         fig = super().plot_graph(title=title, block=block, show=show,
                                  edge_colors_matrix=self.current_matrix,
-                                 node_color_vector=self.potential_vector)
+                                 node_color_vector=self.potential_vector, *args, **kwargs)
         return fig
 
 
